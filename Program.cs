@@ -42,7 +42,7 @@ public class MainForm : Form
         InitializeControls();
         LoadConfig();
 
-        oscListener = new OscListener(UpdateStatus, ProcessOscMessage);
+        oscListener = new OscListener(UpdateStatus, TriggerAction);
 
         if (chkAutoStart.Checked)
         {
@@ -212,60 +212,9 @@ public class MainForm : Form
         lblStatus.ForeColor = color;
     }
 
-    private void ProcessOscMessage(byte[] data)
+    private void TriggerAction()
     {
-        Task.Run(() => ParseOscMessage(data));
-    }
-
-    private void ParseOscMessage(byte[] data)
-    {
-        try
-        {
-            int index = 0;
-
-            string address = ReadOscString(data, ref index);
-            Console.WriteLine($"[OSC LOG] Address: {address}");
-
-            string typeTag = ReadOscString(data, ref index);
-            Console.WriteLine($"[OSC LOG] TypeTag: {typeTag}");
-
-            if (address == "/avatar/parameters/ton_suicide" && typeTag == ",T")
-            {
-                Console.WriteLine($"[OSC LOG] Triggering PerformDrag for address: {address}");
-                PerformDrag(txtWindowName.Text, int.Parse(txtDragTime.Text));
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[ERROR] Failed to parse OSC message: {ex.Message}");
-        }
-    }
-
-    private string ReadOscString(byte[] data, ref int index)
-    {
-        int startIndex = index;
-        while (data[index] != 0) index++;
-        string result = Encoding.UTF8.GetString(data, startIndex, index - startIndex);
-        index = (index + 4) & ~3;
-        return result;
-    }
-
-    private int ReadOscInt(byte[] data, ref int index)
-    {
-        int value = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(data, index));
-        index += 4;
-        return value;
-    }
-
-    private float ReadOscFloat(byte[] data, ref int index)
-    {
-        if (BitConverter.IsLittleEndian)
-        {
-            Array.Reverse(data, index, 4);
-        }
-        float value = BitConverter.ToSingle(data, index);
-        index += 4;
-        return value;
+        PerformDrag(txtWindowName.Text, int.Parse(txtDragTime.Text));
     }
 
     private void PerformDrag(string windowName, int dragTime)
@@ -332,14 +281,14 @@ public class OscListener
     private UdpClient udpClient;
     private CancellationTokenSource cts;
     private readonly Action<string, System.Drawing.Color> updateStatus;
-    private readonly Action<byte[]> processMessage;
+    private readonly Action triggerAction;
 
     public bool IsRunning { get; private set; }
 
-    public OscListener(Action<string, System.Drawing.Color> updateStatus, Action<byte[]> processMessage)
+    public OscListener(Action<string, System.Drawing.Color> updateStatus, Action triggerAction)
     {
         this.updateStatus = updateStatus;
-        this.processMessage = processMessage;
+        this.triggerAction = triggerAction;
     }
 
     public void Start(int port)
@@ -359,7 +308,7 @@ public class OscListener
                     try
                     {
                         var result = await udpClient.ReceiveAsync(cts.Token);
-                        processMessage(result.Buffer);
+                        ProcessOscMessage(result.Buffer);
                     }
                     catch (OperationCanceledException)
                     {
@@ -406,5 +355,61 @@ public class OscListener
         {
             Console.WriteLine($"[ERROR] IOException during Stop: {ex.Message}");
         }
+    }
+
+    private void ProcessOscMessage(byte[] data)
+    {
+        Task.Run(() => ParseOscMessage(data));
+    }
+
+    private void ParseOscMessage(byte[] data)
+    {
+        try
+        {
+            int index = 0;
+
+            string address = ReadOscString(data, ref index);
+            Console.WriteLine($"[OSC LOG] Address: {address}");
+
+            string typeTag = ReadOscString(data, ref index);
+            Console.WriteLine($"[OSC LOG] TypeTag: {typeTag}");
+
+            if (address == "/avatar/parameters/ton_suicide" && typeTag == ",T")
+            {
+                Console.WriteLine($"[OSC LOG] Triggering action for address: {address}");
+                triggerAction?.Invoke();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Failed to parse OSC message: {ex.Message}");
+        }
+    }
+
+    private string ReadOscString(byte[] data, ref int index)
+    {
+        int startIndex = index;
+        while (data[index] != 0) index++;
+        string result = Encoding.UTF8.GetString(data, startIndex, index - startIndex);
+        index = (index + 4) & ~3;
+        return result;
+    }
+
+    private int ReadOscInt(byte[] data, ref int index)
+    {
+        int value = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(data, index));
+        index += 4;
+        return value;
+    }
+
+    private float ReadOscFloat(byte[] data, ref int index)
+    {
+        if (BitConverter.IsLittleEndian)
+        {
+            Array.Reverse(data, index, 4);
+        }
+        float value = BitConverter.ToSingle(data, index);
+        index += 4;
+        return value;
     }
 }
